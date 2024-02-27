@@ -1,21 +1,112 @@
-import gradio as gr
 import random
+import subprocess
+import pathlib  
 
+import gradio as gr
 from PIL import Image
+from transformers import pipeline
+import wandb
+
+SEED = 42
+N_BYPASSING = 2
+N_INTERSECTION = 2
+N_PEDESTRIAN = 2
+MAX_INSTRUCTIONS = 5
+TOTAL_INSTRUCTIONS = 0
+
+random.seed(SEED)
+
+SCENARIOS_BYPASSING = random.sample(list(pathlib.Path('app_data/bypassing').iterdir()), N_BYPASSING)
+SCENARIOS_INTERSECTION = random.sample(list(pathlib.Path('app_data/intersection').iterdir()), N_INTERSECTION)
+SCENARIOS_PEDESTRIAN = random.sample(list(pathlib.Path('app_data/pedestrian').iterdir()), N_PEDESTRIAN)
+SCENARIOS = SCENARIOS_BYPASSING + SCENARIOS_INTERSECTION + SCENARIOS_PEDESTRIAN
+
+pipe = pipeline("text-generation", model="openai-community/gpt2")
 
 def respond(message, chat_history):
-        bot_message = random.choice(["How are you?", "I love you", "I'm very hungry"])
-        chat_history.append((message, bot_message))
-        return "", chat_history
+    global TOTAL_INSTRUCTIONS
+    global MAX_INSTRUCTIONS
+
+    if TOTAL_INSTRUCTIONS >= MAX_INSTRUCTIONS:
+        responce = "You have reached the maximum number of instructions. Please press next scenario to describe another scenario."
+    else:
+        TOTAL_INSTRUCTIONS += 1
+        responce = pipe(message)[0]['generated_text']
+
+    chat_history.append((message, responce))
+
+    # run a simulation
+    # process = subprocess.Popen(['bash', 'scripts/simulate.sh', '19.scenic'], stdout=subprocess.PIPE)
+
+    # Get the output and error (if any)
+    # output, error = process.communicate()
+
+    return "", chat_history
+
+def next_stimuli() -> tuple[gr.Image, bool]:
+    if not SCENARIOS:
+        path = pathlib.Path('app_data/done.png')
+        done = True
+    else:
+        path = SCENARIOS.pop(random.randint(0, len(SCENARIOS) - 1))
+        done = False
+    
+    return gr.Image(value=Image.open(path), show_label=False, show_download_button=False, show_share_button=False), done
+
+
+def generate_html_chat(chat_history):
+    html = ""
+    for i, (user, bot) in enumerate(chat_history):
+        if i == 0:
+            html += f"<p><strong>User:</strong> {user}</p>"
+            html += f"<p><strong>Bot:</strong> {bot}</p>"
+        else:
+            html += f"<p><strong>User:</strong> {user}</p>"
+            html += f"<p><strong>Bot:</strong> {bot}</p>"
+    return html
+
+def next_scenario(msg, chat_history, img, check):
+    global TOTAL_INSTRUCTIONS
+    
+    # logging
+    wandb.log({"chat_history": wandb.Html(generate_html_chat(chat_history), inject=False),
+               "stimuli": wandb.Image(img),
+               "number_of_instructions": TOTAL_INSTRUCTIONS,
+               "satisfied": int(check),
+               })
+
+    # reset
+    TOTAL_INSTRUCTIONS = 0
+    msg = 0
+    chat_history = []
+    img, done = next_stimuli()
+    check = False
+
+    return msg, chat_history, img, check
+
+
+
+wandb.init(project="CDSG-experiments",
+           entity="ipab-rad",
+           )
+
 
 with gr.Blocks() as demo:
-    gr.Markdown("This is a simple demo of Gradio. Enter your name and click 'Run' to see the output.")
+    gr.Markdown("# Conversartional Driving Scenario Generation 🚗 💬")
+    gr.Markdown("This is a chat platform that allows you to generate driving scenarios by provinding scenario descriptions in English. \
+                You are asked to describe the scenario depicted in an image and the dialogue agent (chatbot) will generate the scenario \
+                for you using CARLA simulator. If something is wrong with the simulations provided you are encouraged to provide \
+                follow up instructions (up to 5 times). When you are happy with the simulations produced press next scenario to describe another scenario.\
+                You will be asked to describe 6 scenarios in total.")
     with gr.Row():
-        # legeng_img = gr.Image(Image.open("app_data/legend.png"))
-        scenario_img = gr.Image(Image.open("app_data/bypassing/0.png"))
-        chatbot = gr.Chatbot(avatar_images=("app_data/user.png", "app_data/bot.png"))
+        img, done = next_stimuli()
+        chatbot = gr.Chatbot(avatar_images=("app_data/user.png", "app_data/bot.png"), show_label=False)
+    
     msg = gr.Textbox(label="Enter your instructions here")
     msg.submit(respond, [msg, chatbot], [msg, chatbot])
-    next_btn = gr.ClearButton([msg, chatbot], value="Next Scenario")
+    with gr.Row():
+        check = gr.Checkbox(label="satsified with the scenarios produced")
+        next_btn = gr.Button(value="Next Scenario")
+        next_btn.click(next_scenario, inputs=[msg, chatbot, img, check], outputs=[msg, chatbot, img, check])
 
-demo.launch()
+    demo.launch(share=True)
