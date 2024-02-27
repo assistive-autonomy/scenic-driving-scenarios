@@ -1,4 +1,4 @@
-# Driving Scenarion Generation
+# Driving Scenario Generation
 
 TAS project on scenic driving scenario generation using CARLA
 
