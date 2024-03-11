@@ -9,8 +9,9 @@ import tempfile
 
 import gradio as gr
 from PIL import Image
-import torch
-from transformers import pipeline, BitsAndBytesConfig, AutoModelForCausalLM, AutoTokenizer
+from openai import OpenAI
+#import backoff
+
 #import wandb
 
 SEED = 42
@@ -18,6 +19,7 @@ N_BYPASSING = 2
 N_INTERSECTION = 2
 N_PEDESTRIAN = 2
 MAX_INSTRUCTIONS = 5
+MAX_LLM_QUERIES_PER_TURN = 5
 TOTAL_INSTRUCTIONS = 0
 RAW_CHAT_HISTORY = []
 
@@ -29,44 +31,43 @@ SCENARIOS_PEDESTRIAN = random.sample(list(pathlib.Path('app_data/pedestrian').it
 SCENARIOS = SCENARIOS_BYPASSING + SCENARIOS_INTERSECTION + SCENARIOS_PEDESTRIAN
 
 
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
+with open("../oai_key", "r") as api_key_fs:
+    os.environ["OPENAI_API_KEY"] = api_key_fs.read().strip()
+gpt_client = OpenAI(
+  api_key=os.environ['OPENAI_API_KEY'],  # this is also the default, it can be omitted
 )
 
-model = AutoModelForCausalLM.from_pretrained(
-    "ipab-rad/codellama2-7b-cdsg-tuned-merged",
-    quantization_config=bnb_config,
-    device_map="auto",
-    trust_remote_code=True,
-    use_auth_token=True,
-)
+#MODEL_NAME = "ft:gpt-3.5-turbo-1106:uedin:scenic-run001:8yq6JXLS"
+MODEL_NAME = "ft:gpt-3.5-turbo-1106:uedin:scenic-run002:8ysfl1rR"
+#MODEL_NAME= "ft:gpt-3.5-turbo-1106:uedin:scenic-run003:8ytcZljV" 
+MODEL_TEMP = 0.1
 
-tokenizer = AutoTokenizer.from_pretrained("ipab-rad/codellama2-7b-cdsg-tuned-merged", trust_remote_code=True)
-tokenizer.pad_token = tokenizer.eos_token
-tokenizer.padding_side = "right"  # Fix weird overflow issue with fp16 training
-eos_token_id = 15945 # Corresponds to ""
+#@backoff.on_exception(backoff.expo, openai.RateLimitError)
+def get_lm_response(prompt):
+    response = gpt_client.chat.completions.create(
+        model = MODEL_NAME,
+        temperature = MODEL_TEMP,
+        messages = prompt)
+    return response.choices[0].message.content
 
-pipe = pipeline(
-        "text-generation", 
-        model=model, 
-        tokenizer=tokenizer, 
-        do_sample=True, 
-        top_p=0.9, 
-        temperature=0.3, 
-        max_length=2048, 
-        eos_token_id=eos_token_id)
+system_message_str="""You are a helpful agent that generates specifications for car driving scenarios in the Scenic language
+Scenic is a domain-specific probabilistic programming language for modeling the environments of cyber-physical systems like robots and autonomous cars. A Scenic program defines a distribution over scenes, configurations of physical objects and agents; sampling from this distribution yields concrete scenes which can be simulated to produce training or testing data. Scenic can also define (probabilistic) policies for dynamic agents, allowing modeling scenarios where agents take actions over time in response to the state of the world.
 
-prompt_prefix = """# Scenic is a domain-specific probabilistic programming language for modeling the environments of cyber-physical systems like robots and autonomous cars. A Scenic program defines a distribution over scenes, configurations of physical objects and agents; sampling from this distribution yields concrete scenes which can be simulated to produce training or testing data. Scenic can also define (probabilistic) policies for dynamic agents, allowing modeling scenarios where agents take actions over time in response to the state of the world.
-#
-# Here is a list of Scenic scenarios, each with its corresponding description in English included as a docstring:
-
-"""
+Your task is to generate Scenic scenarios, each according to its corresponding description in English included as a docstring. Write each scenario in a separate code box."""
+system_role = "system"
+system_message = {"role": system_role, "content": system_message_str}
 
 add_map_path = os.path.join("/home/amiceli/TAS_Project/", "Scenic/tests/formats/opendrive/maps/CARLA/")
-def process_response(message, prompt, response):
-    generated_code = prompt + "\n" + response
+def process_response(prompt_messages, response_str):
+    generated_code_raw = response_str
+    generated_code_match = re.search(r'(?s)```(?:scenic)?\s?(.*)```', generated_code_raw)
+    if generated_code_match:
+        generated_code = generated_code_match.groups()[0].strip()
+    else:
+        generated_code = "### ERROR: No code generated"
+
+    docstring = prompt_messages[1]["content"]
+    generated_code = docstring + "\n" + generated_code
 
     map_dir = add_map_path + "/" if (add_map_path[-1] != "/") else add_map_path
     carla_map_match = re.search("param(?:\s+)carla_map(?:\s*)=(?:\s*)['\"](\S+)['\"]", generated_code) # CARLA map name
@@ -75,6 +76,9 @@ def process_response(message, prompt, response):
         map_str = "param map = localPath('%s')" % (map_dir + carla_map + ".xodr")
         generated_code = re.sub('"""\n', ('"""\n\n%s\n' % map_str), generated_code, count=1) # add after the docstring
     return generated_code
+
+def first_user_message(user_str):
+    return '""" Scenario description\n' + user_str + '\n"""'
 
 def respond(message, chat_history):
     global TOTAL_INSTRUCTIONS
@@ -85,35 +89,50 @@ def respond(message, chat_history):
         response = "You have reached the maximum number of instructions. Please press next scenario to describe another scenario."
     else:
         TOTAL_INSTRUCTIONS += 1
-        prompt = '""" Scenario description\n' + " ".join([m for m, h in RAW_CHAT_HISTORY])
-        if (len(RAW_CHAT_HISTORY) > 0):
-            prompt += " "
         message = message.strip()
         if not message.endswith("."):
             message += "."
-        prompt = prompt_prefix + prompt + message + '\n"""'
-        print(prompt, flush=True)
-        response = pipe(prompt)[0]['generated_text']
-        response = response[len(prompt):]
-        response = response.split('""')[0].strip()
-        response = process_response(message, prompt, response)
+        
+        prompt_messages = [system_message]
+        for i, e in enumerate(RAW_CHAT_HISTORY):
+            user_str, bot_str = e
+            if i == 0:
+                user_str = first_user_message(user_str)
+            prompt_messages.append({"role": "user", "content": user_str})
+            prompt_messages.append({"role": "assistant", "content": bot_str})
+        user_str = first_user_message(message) if (len(RAW_CHAT_HISTORY) == 0) else message
+        prompt_messages.append({"role": "user", "content": user_str})
+
+        print(f"Prompt dict: {prompt_messages}", flush=True)
+        response_raw_str = get_lm_response(prompt_messages)
+        print(f"GPT Response raw: {response_raw_str}", flush=True)
+        response = process_response(prompt_messages, response_raw_str)
 
     #print(response, flush=True)
-    html_response = f"<pre><code>{html.escape(response)}</code></pre>"
+    html_response = f"<pre><code>{html.escape(response_raw_str)}</code></pre>"
     chat_history.append((message, html_response))
-    RAW_CHAT_HISTORY.append((message, response))
+    RAW_CHAT_HISTORY.append((message, response_raw_str))
 
     # run a simulation
     tmp_scenario_filename = f"tmp_{uuid.uuid4().hex}.scenic"
     tmp_scenario_filename = os.path.join(tempfile.gettempdir(), tmp_scenario_filename)
     with open(tmp_scenario_filename, "w") as out_fs:
         print(response, file=out_fs)
-    process = subprocess.Popen(['bash', 'scripts/simulate.sh', tmp_scenario_filename], stdout=subprocess.PIPE)
+        print(f"Processed scenario file:\n{response}", flush=True)
+    process = subprocess.Popen(['bash', 'scripts/simulate.sh', tmp_scenario_filename], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE)
 
     # Get the output and error (if any)
     output, error = process.communicate()
+#    print(f"output: {output}\nerror: {error}", flush=True)
     if os.path.exists(tmp_scenario_filename):
         os.remove(tmp_scenario_filename)
+    if os.path.exists(tmp_scenario_filename+".out"):
+        with open(tmp_scenario_filename+".out") as in_fs:
+            output = in_fs.read()
+            print(f"output: {output}")
+        #os.remove(tmp_scenario_filename+".out")
 
     return "", chat_history
 
