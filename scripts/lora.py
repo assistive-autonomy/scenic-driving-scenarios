@@ -1,7 +1,12 @@
 import os
 
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
+from transformers import (DataCollatorForSeq2Seq,
+						  Seq2SeqTrainer,
+						  Seq2SeqTrainingArguments,
+						  AutoTokenizer,
+						  AutoModelForSeq2SeqLM)
+
 from peft import get_peft_model, LoraConfig, TaskType
 import evaluate
 
@@ -12,7 +17,7 @@ os.environ["WANDB_LOG_MODEL"] = "true"
 tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2", padding=True)
 tokenizer.pad_token = tokenizer.eos_token
 
-model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+model = AutoModelForSeq2SeqLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
 config = LoraConfig(task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
 peft_model = get_peft_model(model, config)
 
@@ -55,7 +60,7 @@ def compute_metrics(eval_pred):
 
 
 
-training_args = TrainingArguments(
+training_args = Seq2SeqTrainingArguments(
     output_dir="./models/lora",
     learning_rate=1e-3,
     per_device_train_batch_size=32,
@@ -70,7 +75,13 @@ training_args = TrainingArguments(
     logging_steps=1,
 )
 
-trainer = Trainer(
+# Define data collator
+data_collator = DataCollatorForSeq2Seq(
+    tokenizer=tokenizer,
+    model=model,
+)
+
+trainer = Seq2SeqTrainer(
     model=peft_model,
     args=training_args,
     train_dataset=d2p_dataset["train"],
