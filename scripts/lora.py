@@ -5,10 +5,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingA
 from peft import LoraModel, LoraConfig, TaskType
 import evaluate
 
-
 """set WANDB logging"""
 os.environ["WANDB_PROJECT"] = "cdsg-experiments"
 os.environ["WANDB_LOG_MODEL"] = "true"
+
+tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+peft_config = LoraConfig(task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
+peft_model = LoraModel(model, peft_config)
 
 def description2program(examples):
 	"""task of description to program generation."""
@@ -23,12 +27,6 @@ def description2program(examples):
 
 dataset = load_dataset("ipab-rad/driving_scenarios", trust_remote_code=True)
 d2p_dataset = dataset.map(description2program, batched=True)
-
-tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
-model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
-
-peft_config = LoraConfig(task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
-peft_model = LoraModel(model, peft_config)
 
 # load metrics
 blue_metric = evaluate.load("bleu")
