@@ -2,23 +2,25 @@ import os
 
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
-from peft import LoraModel, LoraConfig, TaskType
+from peft import get_peft_model, LoraConfig, TaskType
 import evaluate
 
 """set WANDB logging"""
 os.environ["WANDB_PROJECT"] = "cdsg-experiments"
 os.environ["WANDB_LOG_MODEL"] = "true"
 
-tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2", padding=True)
+tokenizer.pad_token = tokenizer.eos_token
+
 model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
-peft_config = LoraConfig(task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
-peft_model = LoraModel(model, peft_config)
+config = LoraConfig(task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
+peft_model = get_peft_model(model, config)
 
 def description2program(examples):
 	"""task of description to program generation."""
     
-	inputs = tokenizer(examples["description"], return_tensors="pt")
-	labels = tokenizer(examples["program"], return_tensors="pt")
+	inputs = tokenizer(examples["description"], return_tensors="pt", padding=True, truncation=True)
+	labels = tokenizer(examples["program"], return_tensors="pt", padding=True, truncation=True)
 	return{
 		"input_ids": inputs["input_ids"],
 		"attention_mask": inputs["attention_mask"],
@@ -63,9 +65,9 @@ training_args = TrainingArguments(
     evaluation_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
-	report_to="wandb",
-	run_name="lora",
-	loggig_steps=1,
+    report_to="wandb",
+    run_name="lora",
+    logging_steps=1,
 )
 
 trainer = Trainer(
@@ -77,7 +79,7 @@ trainer = Trainer(
     compute_metrics=compute_metrics,
 )
 
-trainer.train(resume_from_checkpoint=True)
+trainer.train()
 
 peft_model.save_pretrained("./models/lora")
 
