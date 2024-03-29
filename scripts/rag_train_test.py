@@ -157,8 +157,6 @@ def main(cfg: DictConfig):
             pred_program, pred_output = generate_program_from_prompt(cfg, model, tokenizer, prompt)
             compiled = try_compile(pred_program)
 
-            print(compiled["compiled"])
-            
             if not compiled["compiled"] and \
                 cfg.model.exceptions.do_feeding and \
                 num_trials < cfg.model.exceptions.max_trials:
