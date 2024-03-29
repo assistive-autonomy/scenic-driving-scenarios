@@ -101,6 +101,8 @@ def generate_program_from_prompt(cfg, model, tokenizer, prompt):
 @hydra.main(config_path="../config", config_name="rag", version_base=None)
 def main(cfg: DictConfig):
 
+    """Leave one out evaluation for RAG"""
+
     if cfg.wandb.use_wandb:
         config = OmegaConf.to_container(cfg, resolve=False)
         wandb.init(project=cfg.wandb.project,
@@ -118,17 +120,11 @@ def main(cfg: DictConfig):
     test_programs = dataset['test']['program']
     test_d2p = {d: p for d, p in zip(test_descriptions, test_programs)}
 
-    
+    all_d2p = {**train_d2p, **test_d2p}
+
     Settings.embed_model = HuggingFaceEmbedding(model_name=cfg.model.retriever_model_name)
     Settings.llm = None # not using LLM for embedding. In this way, the VectorIndexing and retrieval are faster as descriptions are simple
 
-    nodes = [TextNode(id_= idx, text=description) for idx, description in enumerate(train_descriptions)]
-    index = VectorStoreIndex(nodes)
-
-    retriever = VectorIndexRetriever(index=index,
-                                     similarity_top_k=cfg.model.similarity_top_k)
-    query_engine = RetrieverQueryEngine(retriever=retriever)
-    
     # bits and bytes for quantization
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -147,11 +143,21 @@ def main(cfg: DictConfig):
 
     model.eval()
 
-    for test_description, test_program in test_d2p.items():
+    for test_description, test_program in all_d2p.items():
+        
+        ## embed all but the test description to the index
+        nodes = [TextNode(id_= idx, text=d) for idx, d in enumerate([d for d in all_d2p.keys() if d != test_description])]
+
+        index = VectorStoreIndex(nodes)
+
+        retriever = VectorIndexRetriever(index=index,
+                                        similarity_top_k=cfg.model.similarity_top_k)
+        query_engine = RetrieverQueryEngine(retriever=retriever)
+    
 
         examplars = query_engine.query(test_description)
         
-        prompt = make_prompt(test_description, examplars, train_d2p)
+        prompt = make_prompt(test_description, examplars, all_d2p)
         
         num_trials = 0
         while True:
@@ -160,6 +166,8 @@ def main(cfg: DictConfig):
             pred_program, pred_output = generate_program_from_prompt(cfg, model, tokenizer, prompt)
             compiled = try_compile(pred_program)
 
+            print(compiled["compiled"])
+            
             if not compiled["compiled"] and \
                 cfg.model.exceptions.do_feeding and \
                 num_trials < cfg.model.exceptions.max_trials:
