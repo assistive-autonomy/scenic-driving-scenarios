@@ -1,7 +1,6 @@
 wandb:
   use_wandb: False
   project: "CDSG-experiments"
-  run_name: "CODELLAMA_7B_INSTRUCT"
   entity: "ipab-rad"
 data:
   dataset_name: "ipab-rad/driving_scenarios"
