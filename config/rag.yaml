@@ -1,0 +1,19 @@
+wandb:
+  use_wandb: False
+  project: CDSG-experiments
+  run_name: CODELLAMA_7B_INSTRUCT
+  entity: ipab-rad
+data:
+  dataset_name: ipab-rad/driving_scenarios
+model:
+  model_name: codellama/CodeLlama-7b-Instruct-hf
+  retriever_model_name: BAAI/bge-small-en-v1.5
+  similarity_top_k: 2 
+  decoding_top_k: 50
+  temperature: 1
+  do_sample: False
+  num_beams: 1
+  max_new_tokens: 1200
+  exceptions:
+    do_feeding: False
+    max_trials: 0
