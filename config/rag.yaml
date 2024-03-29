@@ -5,6 +5,7 @@ wandb:
   entity: "ipab-rad"
 data:
   dataset_name: "ipab-rad/driving_scenarios"
+  evaluation: "test"
 model:
   model_name: "codellama/CodeLlama-7b-Instruct-hf"
   retriever_model_name: "BAAI/bge-small-en-v1.5"
