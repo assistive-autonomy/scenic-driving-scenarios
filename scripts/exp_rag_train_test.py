@@ -4,7 +4,7 @@ import random
 # Experiment tracking
 import wandb
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 # ML libraries
 import torch
 from datasets import load_dataset
@@ -91,19 +91,19 @@ def generate_program_from_prompt(cfg, model, tokenizer, prompt):
                             num_beams=cfg.model.num_beams,
                             max_new_tokens=cfg.model.max_new_tokens)
     pred_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    pred_program = postprocess(pred_program, prompt)
+    pred_program = postprocess(pred_output, prompt)
 
     return pred_program, pred_output
 
-@hydra.main(config_path="config", config_name="rag", version_base=None)
+@hydra.main(config_path="../config", config_name="rag", version_base=None)
 def main(cfg: DictConfig):
 
     if cfg.wandb.use_wandb:
+        config = OmegaConf.to_container(cfg, resolve=False)
         wandb.init(project=cfg.wandb.project,
                    entity=cfg.wandb.entity,
                    name=cfg.wandb.run_name,
-                   entity=cfg.wandb.entity, 
-                   config=cfg)
+                   config=config)
 
     dataset = load_dataset(cfg.data.dataset_name, trust_remote_code=True)
 
@@ -157,20 +157,21 @@ def main(cfg: DictConfig):
             pred_program, pred_output = generate_program_from_prompt(cfg, model, tokenizer, prompt)
             compiled = try_compile(pred_program)
             
-            if not compiled["compiled"] and cfg.model.exceptions.exceptions and num_trials < cfg.model.exceptions.max_trials:
+            if not compiled["compiled"] and cfg.model.exceptions.do_feeding and num_trials < cfg.model.exceptions.max_trials:
                 prompt = add_exception(pred_output, compiled["exception"])
             else:
                 break
 
         ## logging
-        metrics = compute_metrics(pred_program, test_program)
+        metrics = compute_metrics(pred_program, test_program, cfg.model.model_name)
         stimuli = {
             "description": wandb.Html(test_description),
             "prompt": wandb.Html(prompt),
             "pred_program": wandb.Html(pred_program),
             "target": wandb.Html(test_program),
         }
-        wandb.log({**metrics, **stimuli, **compiled})
+        if cfg.wandb.use_wandb:
+            wandb.log({**metrics, **stimuli, **compiled})
 
 if __name__ == "__main__":
     main()
