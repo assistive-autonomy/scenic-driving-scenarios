@@ -143,10 +143,22 @@ def main(cfg: DictConfig):
 
     model.eval()
 
-    for test_description, test_program in all_d2p.items():
+    if cfg.data.evaluation == "test":
+        target_d2p = test_d2p
+    elif cfg.data.evaluation == "leave_one_out":
+        target_d2p = all_d2p
+    else:
+        raise ValueError("Evaluation method not supported")
+
+    for target_description, target_program in target_d2p.items():
         
-        ## embed all but the test description to the index
-        nodes = [TextNode(id_= idx, text=d) for idx, d in enumerate([d for d in all_d2p.keys() if d != test_description])]
+        if cfg.data.evaluation == "test":
+            nodes = [TextNode(id_= idx, text=d) for idx, d in enumerate(train_d2p.keys())]
+
+        elif cfg.data.evaluation == "leave_one_out":
+            nodes = [TextNode(id_= idx, text=d) for idx, d in enumerate([d for d in all_d2p.keys() if d != target_description])]
+        else:
+            raise ValueError("Evaluation method not supported")
 
         index = VectorStoreIndex(nodes)
 
@@ -154,10 +166,9 @@ def main(cfg: DictConfig):
                                         similarity_top_k=cfg.model.similarity_top_k)
         query_engine = RetrieverQueryEngine(retriever=retriever)
     
-
-        examplars = query_engine.query(test_description)
+        examplars = query_engine.query(target_description)
         
-        prompt = make_prompt(test_description, examplars, all_d2p)
+        prompt = make_prompt(target_description, examplars, all_d2p)
         
         num_trials = 0
         while True:
@@ -176,12 +187,12 @@ def main(cfg: DictConfig):
                 break
 
         ## logging
-        metrics = compute_metrics(pred_program, test_program, cfg.model.model_name)
+        metrics = compute_metrics(pred_program, target_program, cfg.model.model_name)
         stimuli = {
-            "description": wandb.Html(test_description),
+            "description": wandb.Html(target_description),
             "prompt": wandb.Html(prompt),
             "pred_program": wandb.Html(pred_program),
-            "target": wandb.Html(test_program),
+            "target": wandb.Html(target_program),
         }
         if cfg.wandb.use_wandb:
             wandb.log({**metrics, **stimuli, **compiled})

@@ -1,31 +1,24 @@
 import os
 
 from datasets import load_dataset
-from transformers import (DataCollatorForSeq2Seq,
-						  Seq2SeqTrainer,
-						  Seq2SeqTrainingArguments,
-						  AutoTokenizer,
-						  AutoModelForSeq2SeqLM)
-
-from peft import get_peft_model, LoraConfig, TaskType
+from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
+from peft import LoraModel, LoraConfig, TaskType
 import evaluate
 
 """set WANDB logging"""
 os.environ["WANDB_PROJECT"] = "cdsg-experiments"
 os.environ["WANDB_LOG_MODEL"] = "true"
 
-tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2", padding=True)
-tokenizer.pad_token = tokenizer.eos_token
-
-model = AutoModelForSeq2SeqLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
-config = LoraConfig(task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
-peft_model = get_peft_model(model, config)
+tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
+peft_model = LoraModel(model, peft_config)
 
 def description2program(examples):
 	"""task of description to program generation."""
     
-	inputs = tokenizer(examples["description"], return_tensors="pt", padding=True, truncation=True)
-	labels = tokenizer(examples["program"], return_tensors="pt", padding=True, truncation=True)
+	inputs = tokenizer(examples["description"], return_tensors="pt")
+	labels = tokenizer(examples["program"], return_tensors="pt")
 	return{
 		"input_ids": inputs["input_ids"],
 		"attention_mask": inputs["attention_mask"],
@@ -60,7 +53,7 @@ def compute_metrics(eval_pred):
 
 
 
-training_args = Seq2SeqTrainingArguments(
+training_args = TrainingArguments(
     output_dir="./models/lora",
     learning_rate=1e-3,
     per_device_train_batch_size=32,
@@ -70,18 +63,12 @@ training_args = Seq2SeqTrainingArguments(
     evaluation_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
-    report_to="wandb",
-    run_name="lora",
-    logging_steps=1,
+	report_to="wandb",
+	run_name="lora",
+	loggig_steps=1,
 )
 
-# Define data collator
-data_collator = DataCollatorForSeq2Seq(
-    tokenizer=tokenizer,
-    model=model,
-)
-
-trainer = Seq2SeqTrainer(
+trainer = Trainer(
     model=peft_model,
     args=training_args,
     train_dataset=d2p_dataset["train"],
@@ -90,7 +77,7 @@ trainer = Seq2SeqTrainer(
     compute_metrics=compute_metrics,
 )
 
-trainer.train()
+trainer.train(resume_from_checkpoint=True)
 
 peft_model.save_pretrained("./models/lora")
 
