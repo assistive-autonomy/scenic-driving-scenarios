@@ -188,14 +188,15 @@ def main(cfg: DictConfig):
                 break
 
         ## logging
-        metrics = compute_metrics(pred_program, target_program, cfg.model.model_name)
-        stimuli = {
-            "description": wandb.Html(target_description),
-            "prompt": wandb.Html(prompt),
-            "pred_program": wandb.Html(pred_program),
-            "target": wandb.Html(target_program),
-        }
         if cfg.wandb.use_wandb:
+            metrics = compute_metrics(pred_program, target_program, cfg.model.model_name)
+            stimuli = {
+                "description": wandb.Html(target_description),
+                "prompt": wandb.Html(prompt),
+                "pred_program": wandb.Html(pred_program),
+                "target": wandb.Html(target_program),
+            }
+            compiled["exception"] =  wandb.Html(str(compiled["exception"]))
             wandb.log({**metrics, **stimuli, **compiled})
 
 if __name__ == "__main__":

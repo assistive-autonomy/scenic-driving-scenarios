@@ -1,0 +1,1 @@
+python rag.py wandb.use_wandb=True data.evaluation="leave_one_out" model.exceptions.do_feeding=False model.exceptions.max_trials=3 model.model_name="codellama/CodeLlama-7b-Instruct-hf" model.similarity_top_k=3
