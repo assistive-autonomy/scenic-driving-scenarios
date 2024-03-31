@@ -105,9 +105,10 @@ def main(cfg: DictConfig):
 
     if cfg.wandb.use_wandb:
         config = OmegaConf.to_container(cfg, resolve=False)
+        feed = "feed" if cfg.model.exceptions.do_feeding else ""
         wandb.init(project=cfg.wandb.project,
                    entity=cfg.wandb.entity,
-                   name=f"{cfg.model.model_name}-{cfg.data.evaluation}-{"feed" if cfg.model.exceptions.do_feeding else ""}",
+                   name=f"{cfg.model.model_name}-{cfg.data.evaluation}-{feed}",
                    config=config)
 
     dataset = load_dataset(cfg.data.dataset_name, trust_remote_code=True)
