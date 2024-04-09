@@ -1,9 +1,8 @@
-# Driving Scenario Generation
+# Conversational Driving Scenario Generation
 
-TAS project on scenic driving scenario generation using CARLA
+Generating Driving Scenarios in Conversation for CARLA driving Scenarios
 
 <img src="assets/sample_1.png" width="300" /> <img src="assets/sample_2.png" width="300" /> <img src="assets/sample_3.png" width="300" />
-
 
 ## Setup
 
@@ -15,7 +14,14 @@ pip install -r requirements.txt
 
 ## Experiments
 
+Automatic Evaluation
+
 ```bash
-python app.py
+python scripts/rag.py
 ```
 
+Human Evaluation
+
+```bash
+python scripts/app.py
+```

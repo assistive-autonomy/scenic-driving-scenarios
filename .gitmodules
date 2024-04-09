@@ -1,3 +1,0 @@
-[submodule "driving_scenarios"]
-	path = driving_scenarios
-	url = git@hf.co:datasets/ipab-rad/driving_scenarios
