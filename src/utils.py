@@ -1,6 +1,7 @@
 import random
 import uuid
 import os
+import re
 import tempfile
 import subprocess
 
@@ -74,6 +75,7 @@ def generate_program_from_prompt(cfg: ExpConfig,
     inputs = tokenizer(prompt, return_tensors="pt")
     outputs = model.generate(input_ids=inputs["input_ids"].to("cuda"),
                             attention_mask=inputs["attention_mask"].to("cuda"),
+                            pad_token_id=tokenizer.eos_token_id,
                             temperature=cfg.model.temperature,
                             do_sample=cfg.model.do_sample,
                             top_k=cfg.model.decoding_top_k,
@@ -84,15 +86,17 @@ def generate_program_from_prompt(cfg: ExpConfig,
 
     return pred_program, pred_output
 
-def postprocess_program(program:str , prompt:str) -> str:
+def postprocess_program(program, prompt):
     """cleanup after generation"""
     program = program[len(prompt):]
-    program = program[program.index("#"):]
-    end_marker = "terminate when (distance to egoSpawnPt) > TERM_DIST"
-    end_idx = program.find(end_marker) + len(end_marker) - 1
-    program = program[:end_idx]
-    return program
-
+    try:
+        program = program[program.index("#"):]
+        end_marker = "terminate when (distance to egoSpawnPt) > TERM_DIST"
+        end_idx = program.find(end_marker) + len(end_marker) - 1
+        program = program[:end_idx]
+    except Exception as e:
+        program = "Invalid program"
+    return program 
 def make_summ_prompt(description:str, feedback:str) -> str:
     """generate prompt for summarizing description and user's feedback"""
 
@@ -106,12 +110,9 @@ def make_summ_prompt(description:str, feedback:str) -> str:
     Feedback: {feedback}[/INST]"""
 
 ## Excpetion feeding (in case not compiled program: add it to prompt and re-generate the program)
-def add_exception(prediction, exception):
-    try:
-        instruction = f"\n[INST]When trying to compile, I got a {exception.msg} on line \"{exception.text}\". Can you suggest an updated version?\n [\INST]"
-    except:
-        instruction = f"\n[INST]When trying to compile, I got an exception. Can you suggest an updated version?\n [\INST]"
-    return prediction + instruction
+def add_exception(prediction, exception, description):
+    instruction = f"[INST] When trying to run this program, I got the following error:\n{str(exception)}\n\nCan you suggest an updated version?\nPlease first describe the exception, analyze what caused it and how it could be avoided in this specific case, writing your reasoning in comment lines starting with # then generate the updated program. As a reminder, the **English description** is {description} [\INST]"
+    return prediction + "\n</s><s>" + instruction
 
 def run_simulation(program):
     tmp_scenario_filename = f"tmp_{uuid.uuid4().hex}.scenic"
@@ -124,3 +125,27 @@ def run_simulation(program):
     output, error = process.communicate()
     if os.path.exists(tmp_scenario_filename):
         os.remove(tmp_scenario_filename)
+
+
+def try_compile_and_run(program):
+    """try to compile the program if correct return 1 else 0 with exception message"""
+    
+    scenario_filename = f"./tmp_{uuid.uuid4().hex}.scenic"
+    scenario_output_filename = scenario_filename+".out"
+    with open(scenario_filename, "w") as out_fs:
+        out_fs.write(program)
+    cmd = f"scenic --gather-stats 5 --time 1000 {scenario_filename} > {scenario_output_filename} 2>&1"
+    print("Starting simulation: " + cmd, flush=True)
+    os.system(cmd)
+    with open(scenario_output_filename, "r") as in_scenario_output_fs:
+        scenario_output = in_scenario_output_fs.read().strip()
+        #print(scenario_output, flush=True)
+        scenario_error_match = re.search("Traceback(?:.*)\n", scenario_output)
+        if scenario_error_match is None:
+            rv = {"compiled": 1, "exception": ""}
+        else:
+            scenario_error = scenario_output[scenario_error_match.span()[-1]:].strip()
+            rv = {"compiled": 0, "exception": scenario_error}
+    os.remove(scenario_filename)
+    os.remove(scenario_output_filename)
+    return rv
