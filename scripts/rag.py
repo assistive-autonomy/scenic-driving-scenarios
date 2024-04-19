@@ -1,6 +1,7 @@
 # standard libraries
-import re
+import sys, re
 import random
+from types import SimpleNamespace
 # Experiment tracking
 import wandb
 import hydra
@@ -111,7 +112,7 @@ def main(cfg: DictConfig):
                    name=f"{cfg.model.model_name}-{cfg.data.evaluation}-{feed}",
                    config=config)
 
-    dataset = load_dataset(cfg.data.dataset_name, trust_remote_code=True)
+    dataset = load_dataset(cfg.data.dataset_name)
 
     train_descriptions = dataset['train']['description']
     train_programs = dataset['train']['program']
@@ -123,7 +124,8 @@ def main(cfg: DictConfig):
 
     all_d2p = {**train_d2p, **test_d2p}
 
-    Settings.embed_model = HuggingFaceEmbedding(model_name=cfg.model.retriever_model_name)
+    if not cfg.model.random_examples:
+        Settings.embed_model = HuggingFaceEmbedding(model_name=cfg.model.retriever_model_name)
     Settings.llm = None # not using LLM for embedding. In this way, the VectorIndexing and retrieval are faster as descriptions are simple
 
     # bits and bytes for quantization
@@ -161,14 +163,16 @@ def main(cfg: DictConfig):
         else:
             raise ValueError("Evaluation method not supported")
 
-        index = VectorStoreIndex(nodes)
+        if not cfg.model.random_examples:
+            index = VectorStoreIndex(nodes)
+            retriever = VectorIndexRetriever(index=index,
+                                            similarity_top_k=cfg.model.similarity_top_k)
+            query_engine = RetrieverQueryEngine(retriever=retriever)
+            examplars = query_engine.query(target_description)
+        else:
+            examplars = random.sample(nodes, cfg.model.similarity_top_k)
+            examplars = SimpleNamespace(source_nodes = examplars)
 
-        retriever = VectorIndexRetriever(index=index,
-                                        similarity_top_k=cfg.model.similarity_top_k)
-        query_engine = RetrieverQueryEngine(retriever=retriever)
-    
-        examplars = query_engine.query(target_description)
-        
         prompt = make_prompt(target_description, examplars, all_d2p)
         
         num_trials = 0
@@ -178,12 +182,14 @@ def main(cfg: DictConfig):
             pred_program, pred_output = generate_program_from_prompt(cfg, model, tokenizer, prompt)
             compiled = try_compile(pred_program)
 
-            print(compiled["compiled"])
+            print(compiled["compiled"], compiled["exception"])
+            #print(f"Prompt:\n{prompt}\n\nPredicted program:\n{pred_program}\n\nPredicted output:\n{pred_output}")
             
             if not compiled["compiled"] and \
                 cfg.model.exceptions.do_feeding and \
                 num_trials < cfg.model.exceptions.max_trials:
                 prompt = add_exception(pred_output, compiled["exception"])
+                #print("New prompt:\n"+prompt)
             else:
                 break
 
