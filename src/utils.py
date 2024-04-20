@@ -35,7 +35,8 @@ def get_examplars(cfg: ExpConfig, description: str, d2p: dict[str, str]):
         examplars = query_engine.query(description)
         return {d2p[n.text]: n.text for n in examplars}
 
-def run_simulation(program):
+def run_simulation(program: str):
+    """Run simulation for the user to observe"""
     tmp_scenario_filename = f"tmp_{uuid.uuid4().hex}.scenic"
     tmp_scenario_filename = os.path.join(tempfile.gettempdir(), tmp_scenario_filename)
     with open(tmp_scenario_filename, "w") as out_fs:
@@ -47,8 +48,7 @@ def run_simulation(program):
     if os.path.exists(tmp_scenario_filename):
         os.remove(tmp_scenario_filename)
 
-
-def try_compile_and_run(program):
+def try_compile_and_run(program: str):
     """try to compile the program if correct return 1 else 0 with exception message"""
     
     scenario_filename = f"./tmp_{uuid.uuid4().hex}.scenic"
@@ -56,11 +56,9 @@ def try_compile_and_run(program):
     with open(scenario_filename, "w") as out_fs:
         out_fs.write(program)
     cmd = f"scenic --gather-stats 5 --time 1000 {scenario_filename} > {scenario_output_filename} 2>&1"
-    print("Starting simulation: " + cmd, flush=True)
     os.system(cmd)
     with open(scenario_output_filename, "r") as in_scenario_output_fs:
         scenario_output = in_scenario_output_fs.read().strip()
-        #print(scenario_output, flush=True)
         scenario_error_match = re.search("Traceback(?:.*)\n", scenario_output)
         if scenario_error_match is None:
             rv = {"compiled": 1, "exception": ""}
@@ -93,18 +91,21 @@ def make_code_prompt(cfg: ExpConfig, description: str, d2p: dict[str, str]):
 def generate_program(cfg: ExpConfig,
                     prompt:str,
                     model: AutoModelForCausalLM = None,
-                    tokenizer: AutoTokenizer = None) -> str:
+                    tokenizer: AutoTokenizer = None) -> tuple[str, bool]:
     
     def postprocess(program, prompt):
         """cleanup after generation"""
         program = program[len(prompt):]
+        maybe_program = program
         try:
             program = program[program.index("#"):]
             end_marker = "terminate when (distance to egoSpawnPt) > TERM_DIST"
             end_idx = program.find(end_marker) + len(end_marker) - 1
             program = program[:end_idx]
         except Exception as e:
-            program = "Invalid program"
+            """if program cannot be extracted 
+            by this pattern matching, use error-feeding for correction"""
+            return maybe_program
         return program
     
     def error_feeding(prediction, exception, description):
@@ -152,7 +153,7 @@ def generate_program(cfg: ExpConfig,
             num_trials < cfg.model.exceptions.max_trials:
             prompt = error_feeding(pred_output, compiled["exception"], prompt)
         else:
-            return pred_program, pred_output
+            return pred_program, compiled["compiled"]
 
 def make_summ_prompt(description:str, feedback:str) -> str:
     """generate prompt for summarizing description and user's feedback"""

@@ -1,30 +1,31 @@
 import random
-import subprocess
 import pathlib  
-import re
-import os
-import html
-import uuid
-import tempfile
 from dataclasses import dataclass
-from PIL import Image
 # Experiment tracking
 import wandb
 import hydra
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 from config import ExpConfig
+# Dialogue Interfaca
+from PIL import Image
 import gradio as gr
 # ML libraries
-from huggingface_hub import InferenceClient
 from datasets import load_dataset
-# prompt engineering
 from utils import (make_code_prompt,
                    generate_program,
                    run_simulation,
                    make_summ_prompt,
                    generate_description)
 
+@dataclass
+class AppStatus:
+    """Container to track information during the experiment."""
+    scenarios: list[pathlib.Path]
+    num: int = 0
+    max: int = 5
+    description: str = ""
+    cfg: ExpConfig = ExpConfig()
 
 def get_scenarios(cfg: ExpConfig) -> list[pathlib.Path]:
     """Get scenarios from the given path."""
@@ -38,22 +39,14 @@ def get_scenarios(cfg: ExpConfig) -> list[pathlib.Path]:
     scenarios = bypassing + intersection + pedestrian
     return scenarios
 
-
-@dataclass
-class AppStatus:
-    scenarios: list[pathlib.Path]
-    num: int = 0
-    max: int = 5
-    description: str = ""
-    cfg: ExpConfig = ExpConfig()
-
 def respond(message:str,
             chat_history:list[str],
             status: AppStatus,
             d2p: dict[str, str]):
 
     if status.num >= status.max:
-        response = "You have reached the maximum number of instructions. Please press next scenario to describe another scenario."
+        response = """You have reached the maximum number of instructions.
+        Please press next scenario to describe another scenario."""
     else:
         status.num += 1
 
@@ -65,13 +58,18 @@ def respond(message:str,
             status.description = message
         
         code_prompt = make_code_prompt(status.cfg, status.description, d2p)
-        pred_program = generate_program(status.cfg, code_prompt)
+        pred_program, compiled = generate_program(status.cfg, code_prompt)
 
-        result = run_simulation(status.cfg, pred_program)
+        if not compiled:
+            response = "I did not manage to create a simulation. Can you rephrase it!"
+        else:
+            response = "Understood. Let's generate 3 simulation instances." 
 
-        response = f"Here is the scenario generated from your instructions:\n{result}"
+            result = run_simulation(status.cfg, pred_program)
+
+    chat_history.append(message, response)
         
-    return response, chat_history
+    return response, chat_history, status, d2p
 
 def next_stimuli(status: AppStatus) -> tuple[gr.Image, AppStatus]:
     """Get the next stimuli."""

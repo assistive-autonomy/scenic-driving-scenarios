@@ -31,6 +31,7 @@ class ModelConfig:
     do_sample: bool = False
     num_beams: int = 1
     max_new_tokens: int = 1200
+    max_length: int = 8000
     exceptions: ExceptionConfig = ExceptionConfig()
 
 
