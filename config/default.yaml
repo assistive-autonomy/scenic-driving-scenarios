@@ -22,10 +22,10 @@ model:
     max_trials: 3
 conv:
   assets:
-    user: "assets/app_data/user.png"
-    bot: "assets/app_data/bot.png"
+    user: "../assets/app_data/user.png"
+    bot: "../assets/app_data/bot.png"
   scenarios:
-    path: "assets/app_data"
+    path: "../assets/app_data"
     bypassing: 2
     intersection: 2
     pedestrian: 2

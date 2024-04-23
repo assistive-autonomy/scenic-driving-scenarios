@@ -142,8 +142,7 @@ def main(cfg: ExpConfig):
         
     random.seed(cfg.seed)
 
-    dataset = load_dataset(cfg.data.dataset_name,
-                           trust_remote_code=True)["train"]
+    dataset = load_dataset(cfg.data.dataset_name)["train"]
     global d2p
     d2p = {d: p for d, p in zip(dataset["description"], dataset["program"])}
     

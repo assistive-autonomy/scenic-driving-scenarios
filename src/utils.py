@@ -45,7 +45,7 @@ def run_simulation(program: str):
     tmp_scenario_filename = f"./tmp_{uuid.uuid4().hex}.scenic"
     with open(tmp_scenario_filename, "w") as out_fs:
         out_fs.write(program)
-    process = subprocess.Popen(['bash', 'scripts/simulate.sh', tmp_scenario_filename], stdout=subprocess.PIPE)
+    process = subprocess.Popen(['bash', '../scripts/simulate.sh', tmp_scenario_filename], stdout=subprocess.PIPE)
 
     # Get the output and error (if any)
     output, error = process.communicate()
@@ -72,24 +72,28 @@ def try_compile_and_run(program: str):
     os.remove(scenario_filename)
     os.remove(scenario_output_filename)
     return rv
-        
+
+def code_block(program):
+    return f"```scenic\n{program.strip()}\n```"
+
 def make_code_prompt(cfg: ExpConfig, description: str, d2p: dict[str, str]):
     """generate code prompt from the examplars and description."""
     
     examplars = get_examplars(cfg, description, d2p)
-    examplars = "".join([f"""**English description**:"{d}"\n**Scenic program**:\n{p}\n""" for d,p in examplars.items()])
+    examplars = "".join([f"""**English description**:"{d}"\n**Scenic program**:\n{code_block(p)}\n""" for d,p in examplars.items()])
 
-    return f'''[INST] You are a helpful assistant that translates English descriptions to Scenic programs.
-    Scenic is a domain-specific probabilistic programming language for creating distributions over specified scenarios.
-    For driving scenarios, each program has the following blocks:
-    - MAP AND MODEL: importing town assets and enabling simulator;
-    - CONSTANTS: specifying vehicle blueprint and other constants like vehicle speed, brake intensity and safety distance;
-    - AGENT'S BEHAVIOR: describing how individual vehicles behave in the scenario;
-    - SPATIAL RELATIONS: outlining the type of road the scenario needs to be synthesized in (e.g. having or not having intersections)
-    - SCENARIO SPECIFICATION: creating individual vehicles and pedestrians in the specified roads, together with constraints that are required to be true for the full simulation as well as the termination condition.
-    Here are examples of **English descriptions** and **Scenic programs**:
-    {examplars} Now, please translate the following description to a program. Add no extra information in your responce.
-    **English description**:"{description}"[/INST]'''
+    return f"""[INST] You are a helpful assistant that translates English descriptions to Scenic programs.
+Scenic is a domain-specific probabilistic programming language for creating distributions over specified scenarios.
+For driving scenarios, each program has the following blocks:
+- MAP AND MODEL: importing town assets and enabling simulator;
+- CONSTANTS: specifying vehicle blueprint and other constants like vehicle speed, brake intensity and safety distance;
+- AGENT'S BEHAVIOR: describing how individual vehicles behave in the scenario;
+- SPATIAL RELATIONS: outlining the type of road the scenario needs to be synthesized in (e.g. having or not having intersections)
+- SCENARIO SPECIFICATION: creating individual vehicles and pedestrians in the specified roads, together with constraints that are required to be true for the full simulation as well as the termination condition.
+Here are examples of **English descriptions** and **Scenic programs**:
+{examplars}
+Now, please translate the following description to a program. Add no extra information in your response.
+**English description**:"{description}" [/INST]"""
 
 def generate_program(cfg: ExpConfig,
                     prompt:str,
@@ -103,22 +107,36 @@ def generate_program(cfg: ExpConfig,
             program = program[len(prompt):]
         maybe_program = program
         try:
-            program = program[program.index("#"):]
-            end_marker = "terminate when (distance to egoSpawnPt) > TERM_DIST"
-            end_idx = program.find(end_marker) + len(end_marker) - 1
-            program = program[:end_idx+1]
+            generated_code_match = re.search(r'(?s)```(?:scenic)?\s?(.*)```', maybe_program)
+            if generated_code_match:
+                program = generated_code_match.groups()[0].strip()
+            else:
+                program = "### ERROR: No code generated"
+            #program = program[program.index("#"):]
+            #print("=== 0 ===\n"+program, flush=True)
+            #end_marker = "terminate when (distance to egoSpawnPt) > TERM_DIST"
+            #end_idx = program.find(end_marker) + len(end_marker) - 1
+            #program = program[:end_idx+1]
+            #print(f"=== 1 ===\n{end_idx}\n{program}", flush=True)
         except Exception as e:
             """if program cannot be extracted 
             by this pattern matching, use error-feeding for correction"""
+            #print("==== maybe_program ====\n"+maybe_program, flush=True)
             return maybe_program
         return program
     
     def error_feeding(prediction, exception, description):
         ## Excpetion feeding (in case not compiled program: add it to prompt and re-generate the program)
         instruction = f"""[INST] When trying to run this program, I got the following error:\n{str(exception)}
-        Can you suggest an updated version?
-        Please first describe the exception, analyze what caused it and how it could be avoided in this specific case, writing your reasoning in comment lines starting with # then generate the updated program.
-        As a reminder, the description is {description} [\INST]"""
+Can you suggest an updated version?
+Please first describe the exception, analyze what caused it and how it could be avoided in this specific case, writing your reasoning in comment lines starting with # then generate the updated program.
+Make sure you generate valid Scenic code, according to the examples, not Python code.
+Make sure you generate a full Scenic program, not just a snippet.
+Enclose the program in a code block:
+```scenic
+# PROGRAM
+```
+**English description**:"{description}e [\INST]"""
         return prediction + "\n</s><s>" + instruction
 
     """Generate Scenic program"""
@@ -158,6 +176,7 @@ def generate_program(cfg: ExpConfig,
 
    
             pred_program = postprocess(pred_output)
+        print("=====raw llm output =======\n"+pred_output, flush=True)
         print("=====program pred =======")
         print(pred_program)
 
