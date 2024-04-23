@@ -23,9 +23,9 @@ class ExceptionConfig:
 class ModelConfig:
     model_name: str = "codellama/CodeLlama-7b-Instruct-hf"
     retriever_model_name: str = "BAAI/bge-small-en-v1.5"
-    client: str = "http://goya:8080"
+    client: str = "http://goya.inf.ed.ac.uk:8080"
     random_examples: bool = False
-    retrieval_top_k: int = 3
+    retrieval_top_k: int = 4
     decoding_top_k: int = 50
     temperature: float = 1.0
     do_sample: bool = False

@@ -1,0 +1,33 @@
+seed: 42
+wandb:
+  use_wandb: false
+  project: CDSG-experiments
+  entity: ipab-rad
+data:
+  dataset_name: ipab-rad/driving_scenarios
+model:
+  model_name: codellama/CodeLlama-7b-Instruct-hf
+  random_examples: false
+  retriever_model_name: BAAI/bge-small-en-v1.5
+  client: http://goya.inf.ed.ac.uk:8080
+  retrieval_top_k: 3
+  decoding_top_k: 50
+  temperature: 1
+  do_sample: false
+  num_beams: 1
+  max_new_tokens: 1200
+  max_length: 8000
+  exceptions:
+    do_feeding: false
+    max_trials: 3
+conv:
+  assets:
+    user: assets/app_data/user.png
+    bot: assets/app_data/bot.png
+  scenarios:
+    path: assets/app_data
+    bypassing: 2
+    intersection: 2
+    pedestrian: 2
+  max_instructions: 5
+  share: false

@@ -9,7 +9,7 @@ start_carla() {
 # Function to start Scenic program in a new terminal and save the terminal's PID
 start_scenic() {
     local scenic_program="$1"
-    gnome-terminal -- bash -c "scenic -S ./$scenic_program --count 3 ; read -p 'Press Enter to exit...'" &
+    gnome-terminal -- bash -c "scenic -S ./$scenic_program --count 3 --time 300; read -p 'Press Enter to exit...'" &
     scenic_terminal_pid=$!
 }
 

@@ -33,14 +33,18 @@ def get_examplars(cfg: ExpConfig, description: str, d2p: dict[str, str]):
         retriever = VectorIndexRetriever(index, cfg.model.retrieval_top_k)
         query_engine = RetrieverQueryEngine(retriever)
         examplars = query_engine.query(description)
-        return {d2p[n.text]: n.text for n in examplars}
+        return {n.text: d2p[n.text] for n in examplars.source_nodes}
 
 def run_simulation(program: str):
     """Run simulation for the user to observe"""
-    tmp_scenario_filename = f"tmp_{uuid.uuid4().hex}.scenic"
-    tmp_scenario_filename = os.path.join(tempfile.gettempdir(), tmp_scenario_filename)
+    # tmp_scenario_filename = f"tmp_{uuid.uuid4().hex}.scenic"
+    # tmp_scenario_filename = os.path.join(tempfile.gettempdir(), tmp_scenario_filename)
+    # with open(tmp_scenario_filename, "w") as out_fs:
+    #     print(program, file=out_fs)
+
+    tmp_scenario_filename = f"./tmp_{uuid.uuid4().hex}.scenic"
     with open(tmp_scenario_filename, "w") as out_fs:
-        print(program, file=out_fs)
+        out_fs.write(program)
     process = subprocess.Popen(['bash', 'scripts/simulate.sh', tmp_scenario_filename], stdout=subprocess.PIPE)
 
     # Get the output and error (if any)
@@ -73,35 +77,36 @@ def make_code_prompt(cfg: ExpConfig, description: str, d2p: dict[str, str]):
     """generate code prompt from the examplars and description."""
     
     examplars = get_examplars(cfg, description, d2p)
-    examplars = "".join([f"Description**:\n {d}\nProgram:\n{p}\n" for d,p in examplars.items()])
+    examplars = "".join([f"""**English description**:"{d}"\n**Scenic program**:\n{p}\n""" for d,p in examplars.items()])
 
     return f'''[INST] You are a helpful assistant that translates English descriptions to Scenic programs.
-    Scenic is a domain-specific probabilistic programminglanguage for creating distributions over specified scenarios.
+    Scenic is a domain-specific probabilistic programming language for creating distributions over specified scenarios.
     For driving scenarios, each program has the following blocks:
     - MAP AND MODEL: importing town assets and enabling simulator;
     - CONSTANTS: specifying vehicle blueprint and other constants like vehicle speed, brake intensity and safety distance;
     - AGENT'S BEHAVIOR: describing how individual vehicles behave in the scenario;
     - SPATIAL RELATIONS: outlining the type of road the scenario needs to be synthesized in (e.g. having or not having intersections)
     - SCENARIO SPECIFICATION: creating individual vehicles and pedestrians in the specified roads, together with constraints that are required to be true for the full simulation as well as the termination condition.
-    Here are examples of description and programs:
-    {examplars}
-    Now, please translate the following description to a program.Just give the program. No extra information.
-    Description:{description}[/INST]'''
+    Here are examples of **English descriptions** and **Scenic programs**:
+    {examplars} Now, please translate the following description to a program. Add no extra information in your responce.
+    **English description**:"{description}"[/INST]'''
 
 def generate_program(cfg: ExpConfig,
                     prompt:str,
+                    description: str,
                     model: AutoModelForCausalLM = None,
                     tokenizer: AutoTokenizer = None) -> tuple[str, bool]:
     
-    def postprocess(program, prompt):
+    def postprocess(program, prompt=None):
         """cleanup after generation"""
-        program = program[len(prompt):]
+        if prompt is not None:
+            program = program[len(prompt):]
         maybe_program = program
         try:
             program = program[program.index("#"):]
             end_marker = "terminate when (distance to egoSpawnPt) > TERM_DIST"
             end_idx = program.find(end_marker) + len(end_marker) - 1
-            program = program[:end_idx]
+            program = program[:end_idx+1]
         except Exception as e:
             """if program cannot be extracted 
             by this pattern matching, use error-feeding for correction"""
@@ -125,6 +130,9 @@ def generate_program(cfg: ExpConfig,
     while True:
         num_trials += 1
 
+        print("prompt used")
+        print(prompt)
+
         if client is None:
 
             inputs = tokenizer(prompt, return_tensors="pt")
@@ -137,21 +145,31 @@ def generate_program(cfg: ExpConfig,
                                     num_beams=cfg.model.num_beams,
                                     max_new_tokens=cfg.model.max_new_tokens)
             pred_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
+
+            pred_program = postprocess(pred_output, prompt)
+
         else:
             pred_output = client.text_generation(prompt=prompt,
-                                                max_length=6000,
-                                                max_new_tokens=1200)
+                                                temperature=cfg.model.temperature,
+                                                do_sample=cfg.model.do_sample,
+                                                top_k=cfg.model.decoding_top_k,
+                                                best_of = cfg.model.num_beams,
+                                                max_new_tokens=cfg.model.max_new_tokens)
 
-
-        pred_program = postprocess(pred_output, prompt)
+   
+            pred_program = postprocess(pred_output)
+        print("=====program pred =======")
+        print(pred_program)
 
         compiled = try_compile_and_run(pred_program)
+
+        print(compiled)
 
         if not compiled["compiled"] and \
             cfg.model.exceptions.do_feeding and \
             num_trials < cfg.model.exceptions.max_trials:
-            prompt = error_feeding(pred_output, compiled["exception"], prompt)
+            error_msg = error_feeding(pred_output, compiled["exception"], description)
+            prompt = prompt + error_msg
         else:
             return pred_program, compiled["compiled"]
 
@@ -168,21 +186,31 @@ def make_summ_prompt(description:str, feedback:str) -> str:
     Feedback: {feedback}[/INST]"""
 
 def generate_description(cfg: ExpConfig,
-                        model: AutoModelForCausalLM,
-                        tokenizer: AutoTokenizer, 
-                        prompt:str) -> str:
+                        prompt: str,
+                        model: AutoModelForCausalLM = None,
+                        tokenizer: AutoTokenizer = None, 
+                        ) -> str:
     """Generate updated description from the prompt"""
+    if model is None and tokenizer is None:
+        client = InferenceClient(model=cfg.model.client)
+        pred_description = client.text_generation(prompt=prompt,
+                                                temperature=cfg.model.temperature,
+                                                do_sample=cfg.model.do_sample,
+                                                top_k=cfg.model.decoding_top_k,
+                                                best_of = cfg.model.num_beams,
+                                                max_new_tokens=cfg.model.max_new_tokens)
 
-    inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(input_ids=inputs["input_ids"].to("cuda"),
-                            attention_mask=inputs["attention_mask"].to("cuda"),
-                            pad_token_id=tokenizer.eos_token_id,
-                            temperature=cfg.model.temperature,
-                            do_sample=cfg.model.do_sample,
-                            top_k=cfg.model.decoding_top_k,
-                            num_beams=cfg.model.num_beams,
-                            max_new_tokens=cfg.model.max_new_tokens)
-    pred_description = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    else:
+        inputs = tokenizer(prompt, return_tensors="pt")
+        outputs = model.generate(input_ids=inputs["input_ids"].to("cuda"),
+                                attention_mask=inputs["attention_mask"].to("cuda"),
+                                pad_token_id=tokenizer.eos_token_id,
+                                temperature=cfg.model.temperature,
+                                do_sample=cfg.model.do_sample,
+                                top_k=cfg.model.decoding_top_k,
+                                num_beams=cfg.model.num_beams,
+                                max_new_tokens=cfg.model.max_new_tokens)
+        pred_description = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
     return pred_description
 

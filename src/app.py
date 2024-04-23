@@ -30,19 +30,21 @@ class AppStatus:
 def get_scenarios(cfg: ExpConfig) -> list[pathlib.Path]:
     """Get scenarios from the given path."""
     base_path = pathlib.Path(cfg.conv.scenarios.path)
-    bypassing = random.sample(list(base_path/"bypassing".iterdir()),
+    bypassing = random.sample(list((base_path/"bypassing").iterdir()),
                               cfg.conv.scenarios.bypassing)
-    intersection = random.sample(list(base_path/"intersection".iterdir()),
+    intersection = random.sample(list((base_path/"intersection").iterdir()),
                                  cfg.conv.scenarios.intersection)
-    pedestrian = random.sample(list(base_path/"pedestrian".iterdir()),
+    pedestrian = random.sample(list((base_path/"pedestrian").iterdir()),
                                cfg.conv.scenarios.pedestrian)
     scenarios = bypassing + intersection + pedestrian
     return scenarios
 
 def respond(message:str,
             chat_history:list[str],
-            status: AppStatus,
-            d2p: dict[str, str]):
+            ):
+    
+    global d2p
+    global status
 
     if status.num >= status.max:
         response = """You have reached the maximum number of instructions.
@@ -52,24 +54,29 @@ def respond(message:str,
 
         # if not the first message, generate the descripton
         if status.description != "":
+            print("==== changing the description ===")
             summ_prompt = make_summ_prompt(status.description, message)
             status.description = generate_description(status.cfg, summ_prompt)
         else:
             status.description = message
+
+        print(f"====description: {status.description}")
         
         code_prompt = make_code_prompt(status.cfg, status.description, d2p)
-        pred_program, compiled = generate_program(status.cfg, code_prompt)
+        pred_program, compiled = generate_program(status.cfg, code_prompt, status.description)
 
         if not compiled:
             response = "I did not manage to create a simulation. Can you rephrase it!"
+            ## delete the message 
+            status.description = ""
         else:
             response = "Understood. Let's generate 3 simulation instances." 
 
-            result = run_simulation(status.cfg, pred_program)
+            run_simulation(pred_program)
 
-    chat_history.append(message, response)
+    chat_history.append((message, response))
         
-    return response, chat_history, status, d2p
+    return "", chat_history
 
 def next_stimuli(status: AppStatus) -> tuple[gr.Image, AppStatus]:
     """Get the next stimuli."""
@@ -81,9 +88,11 @@ def next_stimuli(status: AppStatus) -> tuple[gr.Image, AppStatus]:
     return gr.Image(value=Image.open(path),
                     show_label=False, 
                     show_download_button=False,
-                    show_share_button=False), status.scenarios
+                    show_share_button=False), status
 
-def next_scenario(msg, chat_history, img, check, status: AppStatus):
+def next_scenario(msg, chat_history, img, check):
+
+    global status
 
     def html_chat(chat_history):
         html = ""
@@ -118,8 +127,10 @@ def next_scenario(msg, chat_history, img, check, status: AppStatus):
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=ExpConfig)
 
-@hydra.main(config_path="../config", config_name="rag", version_base=None)
+@hydra.main(config_path="../config", config_name="default", version_base=None)
 def main(cfg: ExpConfig):
+
+    print(OmegaConf.to_yaml(cfg))
 
     if cfg.wandb.use_wandb:
         config = OmegaConf.to_container(cfg, resolve=False)
@@ -133,9 +144,11 @@ def main(cfg: ExpConfig):
 
     dataset = load_dataset(cfg.data.dataset_name,
                            trust_remote_code=True)["train"]
+    global d2p
     d2p = {d: p for d, p in zip(dataset["description"], dataset["program"])}
     
     # marker for state status
+    global status
     status = AppStatus(scenarios=get_scenarios(cfg),
                        num=0,
                        max=cfg.conv.max_instructions,
@@ -152,14 +165,15 @@ def main(cfg: ExpConfig):
         
         msg = gr.Textbox(label="Enter your instructions here")
         msg.submit(respond,
-                   inputs=[msg, chatbot, status, d2p],
-                   outputs=[msg, chatbot, status, d2p])
+                   inputs=[msg, chatbot],
+                   outputs=[msg, chatbot])
+
         with gr.Row():
             check = gr.Checkbox(label="Satsified with the scenarios produced")
             next_btn = gr.Button(value="Next Scenario")
             next_btn.click(next_scenario,
-                           inputs=[msg, chatbot, img, check, status],
-                           outputs=[msg, chatbot, img, check, status])
+                           inputs=[msg, chatbot, img, check],
+                           outputs=[msg, chatbot, img, check])
 
     demo.launch(share=cfg.conv.share)
 

@@ -9,17 +9,16 @@ model:
   model_name: "codellama/CodeLlama-7b-Instruct-hf"
   random_examples: False
   retriever_model_name: "BAAI/bge-small-en-v1.5"
-  client: "http://goya:8080" # on-site machine
-  random_examples: False
+  client: "http://goya.inf.ed.ac.uk:8080" # on-site machine
   retrieval_top_k: 3
   decoding_top_k: 50
-  temperature: 1
+  temperature: 0.001
   do_sample: False
   num_beams: 1
   max_new_tokens: 1200
   max_length: 8000
   exceptions:
-    do_feeding: False
+    do_feeding: True
     max_trials: 3
 conv:
   assets:
