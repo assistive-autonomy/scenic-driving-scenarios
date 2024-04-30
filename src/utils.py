@@ -148,11 +148,10 @@ Enclose the program in a code block:
     while True:
         num_trials += 1
 
-        print("prompt used")
-        print(prompt)
+        #print("prompt used")
+        #print(prompt)
 
         if client is None:
-
             inputs = tokenizer(prompt, return_tensors="pt")
             outputs = model.generate(input_ids=inputs["input_ids"].to("cuda"),
                                     attention_mask=inputs["attention_mask"].to("cuda"),
@@ -176,9 +175,9 @@ Enclose the program in a code block:
 
    
             pred_program = postprocess(pred_output)
-        print("=====raw llm output =======\n"+pred_output, flush=True)
-        print("=====program pred =======")
-        print(pred_program)
+        #print("=====raw llm output =======\n"+pred_output, flush=True)
+        #print("=====program pred =======")
+        #print(pred_program)
 
         compiled = try_compile_and_run(pred_program)
 
@@ -190,7 +189,7 @@ Enclose the program in a code block:
             error_msg = error_feeding(pred_output, compiled["exception"], description)
             prompt = prompt + error_msg
         else:
-            return pred_program, compiled["compiled"]
+            return pred_program, compiled
 
 def make_summ_prompt(description:str, feedback:str) -> str:
     """generate prompt for summarizing description and user's feedback"""

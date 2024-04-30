@@ -65,7 +65,7 @@ def respond(message:str,
         code_prompt = make_code_prompt(status.cfg, status.description, d2p)
         pred_program, compiled = generate_program(status.cfg, code_prompt, status.description)
 
-        if not compiled:
+        if not compiled["compiled"]:
             response = "I did not manage to create a simulation. Can you rephrase it!"
             ## delete the message 
             status.description = ""
