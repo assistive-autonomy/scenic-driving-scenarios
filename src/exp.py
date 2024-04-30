@@ -28,7 +28,7 @@ perprexity_metric = evaluate.load("perplexity", module_type="metric")
 def compute_metrics(prediction, reference, model_name):
     return {
         "BLEU": blue_metric.compute(predictions=[prediction],
-                                    references=[reference])["bleu"]*100,
+                                    references=[reference])["score"],
         "ROUGE-L": rouge_metric.compute(predictions=[prediction],
                                         references=[reference])["rougeL"]*100,
         "PP": perprexity_metric.compute(predictions=[prediction],
@@ -61,6 +61,7 @@ def main(cfg: ExpConfig):
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.bfloat16,
     )
+    #bnb_config = None
 
     model = AutoModelForCausalLM.from_pretrained(cfg.model.model_name,
                                                 device_map="auto",
@@ -79,7 +80,7 @@ def main(cfg: ExpConfig):
         
         prompt = make_code_prompt(cfg, target_description, other_d2p)
 
-        pred_program = generate_program(cfg, model, tokenizer, prompt)
+        pred_program, _ = generate_program(cfg, prompt, target_description, model, tokenizer)
 
         compiled = run_simulation(pred_program)
     

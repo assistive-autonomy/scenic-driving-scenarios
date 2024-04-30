@@ -1,6 +1,6 @@
 seed: 42
 wandb:
-  use_wandb: False
+  use_wandb: True
   project: "CDSG-experiments"
   entity: "ipab-rad"
 data:
@@ -16,7 +16,7 @@ model:
   do_sample: False
   num_beams: 1
   max_new_tokens: 1200
-  max_length: 8000
+  max_length: 2000
   exceptions:
     do_feeding: True
     max_trials: 3

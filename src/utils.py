@@ -152,7 +152,6 @@ Enclose the program in a code block:
         print(prompt)
 
         if client is None:
-
             inputs = tokenizer(prompt, return_tensors="pt")
             outputs = model.generate(input_ids=inputs["input_ids"].to("cuda"),
                                     attention_mask=inputs["attention_mask"].to("cuda"),
