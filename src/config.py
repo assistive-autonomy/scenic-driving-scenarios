@@ -1,4 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
+
+import yaml
 
 
 @dataclass
@@ -64,4 +66,18 @@ class ExpConfig:
     data: DataConfig = DataConfig()
     model: ModelConfig = ModelConfig()
     conv: ConvConfig = ConvConfig()
+
+
+def _from_dict(cls, data):
+    if not is_dataclass(cls):
+        return data
+    kwargs = {f.name: _from_dict(f.type, data[f.name])
+              for f in fields(cls) if f.name in data}
+    return cls(**kwargs)
+
+
+def load_config(path: str = "../config/default.yaml") -> ExpConfig:
+    with open(path) as fs:
+        data = yaml.safe_load(fs) or {}
+    return _from_dict(ExpConfig, data)
 
