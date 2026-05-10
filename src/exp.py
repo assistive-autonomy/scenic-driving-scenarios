@@ -1,11 +1,9 @@
 # standard libraries
 import random
+from dataclasses import asdict
 # Experiment tracking
 import wandb
-import hydra
-from hydra.core.config_store import ConfigStore
-from config import ExpConfig
-from omegaconf import OmegaConf
+from config import ExpConfig, load_config
 # ML libraries
 import torch
 from datasets import load_dataset
@@ -40,15 +38,11 @@ def compute_metrics(prediction, reference, model, tokenizer):
     print(scores, flush=True)
     return scores
 
-cs = ConfigStore.instance()
-cs.store(name="base_config", node=ExpConfig)
-
-@hydra.main(config_path="../config", config_name="default", version_base=None)
 def main(cfg: ExpConfig):
     """Code Generation Experiments"""
 
     if cfg.wandb.use_wandb:
-        config = OmegaConf.to_container(cfg, resolve=False)
+        config = asdict(cfg)
         feed = "-error-feeding" if cfg.model.exceptions.do_feeding else ""
         wandb.init(project=cfg.wandb.project,
                    entity=cfg.wandb.entity,
@@ -104,4 +98,4 @@ def main(cfg: ExpConfig):
             wandb.log({**metrics, **stimuli, **compiled})
 
 if __name__ == "__main__":
-    main()
+    main(load_config())

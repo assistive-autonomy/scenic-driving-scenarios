@@ -1,12 +1,10 @@
 import random
-import pathlib  
-from dataclasses import dataclass
+import pathlib
+from dataclasses import dataclass, asdict
 # Experiment tracking
 import wandb
-import hydra
-from hydra.core.config_store import ConfigStore
-from omegaconf import OmegaConf
-from config import ExpConfig
+import yaml
+from config import ExpConfig, load_config
 # Dialogue Interfaca
 from PIL import Image
 import gradio as gr
@@ -124,16 +122,12 @@ def next_scenario(msg, chat_history, img, check):
 
     return msg, chat_history, img, check, status
 
-cs = ConfigStore.instance()
-cs.store(name="base_config", node=ExpConfig)
-
-@hydra.main(config_path="../config", config_name="default", version_base=None)
 def main(cfg: ExpConfig):
 
-    print(OmegaConf.to_yaml(cfg))
+    print(yaml.dump(asdict(cfg), sort_keys=False))
 
     if cfg.wandb.use_wandb:
-        config = OmegaConf.to_container(cfg, resolve=False)
+        config = asdict(cfg)
         feed = "-error-feeding" if cfg.model.exceptions.do_feeding else ""
         wandb.init(project=cfg.wandb.project,
                    entity=cfg.wandb.entity,
@@ -177,4 +171,4 @@ def main(cfg: ExpConfig):
     demo.launch(share=cfg.conv.share)
 
 if __name__ == '__main__':
-    main()
+    main(load_config())

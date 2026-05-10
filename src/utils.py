@@ -28,7 +28,7 @@ def get_examplars(cfg: ExpConfig, description: str, d2p: dict[str, str]):
         Settings.embed_model = HuggingFaceEmbedding(model_name=cfg.model.retriever_model_name)
         Settings.llm = None # not using LLM for embedding.
         
-        nodes = [TextNode(id_= idx, text=d) for idx, d in enumerate(d2p.keys())]
+        nodes = [TextNode(id_=str(idx), text=d) for idx, d in enumerate(d2p.keys())]
         index = VectorStoreIndex(nodes)
         retriever = VectorIndexRetriever(index, cfg.model.retrieval_top_k)
         query_engine = RetrieverQueryEngine(retriever)

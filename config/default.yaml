@@ -2,7 +2,7 @@ seed: 42
 wandb:
   use_wandb: True
   project: "scenic-driving-scenarios"
-  entity: "assistive-autonomy"
+  entity: ""  # set to your W&B username/team before running
 data:
   dataset_name: "assistive-autonomy/scenic-driving-scenarios"
 model:
